@@ -4,13 +4,13 @@ import configparser
 config = configparser.ConfigParser()
 config.read('config.ini')
 
-DEFAULT = {"DEFAULT_USER": None,
-           "DEFAULT_CORPUS": None}
+# DEFAULT = {"DEFAULT_USER": None,
+#            "DEFAULT_CORPUS": None}
 
 _BASE_URL = config["DEFAULT"]["base_url"]
 _FORMAT = config["DEFAULT"]["format"]
 
-query_params = {"base_url": _BASE_URL, "format": _FORMAT}
+default_params = {"format": _FORMAT, "username": None, "api_key": None}
 
 REQUIRED = ["api_key", "username", "corpname"]
 
@@ -28,23 +28,16 @@ def parse_args(args):
     return parsed
 
 
-def default_parameters():
-    print(parse_args(list(DEFAULT.values())))
-    return parse_args(list(DEFAULT.values()))
-
-
 def reset_default_parameters():
-    global DEFAULT
-    DEFAULT = {"DEFAULT_USER": None,
-               "DEFAULT_CORPUS": None}
+    global default_params
+    default_params = {"format": _FORMAT, "username": None, "api_key": None}
 
 
 def update_from_default(params):
-    default = parse_args(list(DEFAULT.values()))
-    for key in default:
+    for key in default_params:
         if key not in params:
-            params[key] = default[key]
-    params["format"] = _FORMAT
+            params[key] = default_params[key]
+    params.update(default_params)
     return params
 
 
@@ -60,14 +53,16 @@ def missing_params(params):
 
 class User:
 
-    def __init__(self, api_key, username):
-
+    def __init__(self, api_key, username, default=True):
         self._api_key = api_key
         self._username = username
+        if default:
+            self.default()
 
     def default(self):
-        global DEFAULT
-        DEFAULT["DEFAULT_USER"] = self
+        global DEFAULT, default_params
+        default_params["api_key"] = self.api_key
+        default_params["username"] = self.username
 
     @property
     def api_key(self):
@@ -76,6 +71,8 @@ class User:
     @property
     def username(self):
         return self._username
+
+
 
 
 class Query:
@@ -105,6 +102,8 @@ class Query:
 
 class Corpus:
 
+    method = "/corpname"
+
     def __init__(self, corpus_name, my_corpus=False):
         self._corpname = corpus_name
         self._info = None
@@ -112,15 +111,6 @@ class Corpus:
     @property
     def corpname(self):
         return self._corpname
-
-    def get_info(self):
-        #TODO
-        if not self._info:
-            #make request
-            #self._info = request
-            return "DEFINE Query"
-        else:
-            return self._info
 
     def default(self):
         global DEFAULT
@@ -174,7 +164,7 @@ class WordSketch:
         self._gram_rels = data["gramrels"]
 
     def params_from_kwargs(self, kwargs):
-        if set(self._params.keys()).issubset(set(REQUIRED)):
+        if set(kwargs).issubset(set(REQUIRED)):
             raise Exception("Not enough arguments to make a Sketch Engine request.")
         self._params.update(kwargs)
 
@@ -232,7 +222,7 @@ class WordSketch:
 
     def __str__(self):
         return ("URL: {}.\nLemma: {}.\nPart of speech: {} ('{}').\n"
-                "Corpus: {}.\nFrequency: {} ({} per million).\n".format(self.url, self.lemma, self.pos, self.lpos,
+                "Corpus: {}.\nFrequency: {} ({} per million).".format(self.url, self.lemma, self.pos, self.lpos,
                                                                         self.corpus_name, self.frequency_raw,
                                                                         round(self.frequency_rel, 2)))
 
