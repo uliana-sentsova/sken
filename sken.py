@@ -155,10 +155,16 @@ class WordSketch:
         if missing:
             raise Exception("Missing parameter(s): {}".format(", ".join(missing)) + ".")
 
-        print("Sending request to Sketch Engine API...", self.method_url)
-        print(self._params)
-        data = requests.get(self.method_url, params=self._params).json()
+        print("Sending request to Sketch Engine API...")
 
+        response = requests.get(self.method_url, params=self._params)
+        if response.status_code != requests.codes.ok:
+            response.raise_for_status()
+
+        data = response.json()
+        print("Data retrieved.")
+
+        self._url = response.url
         self._lemma = data["lemma"]
         self._corpus_name = data["corp_full_name"]
         self._frequency_raw = data["freq"]
@@ -188,13 +194,21 @@ class WordSketch:
     def lemma(self):
         return self._lemma
 
-    @property
-    def pos(self):
-        return self._lpos
 
     @property
     def lpos_dict(self):
         return self._lpos_dict
+
+    @property
+    def lpos(self):
+        return self._lpos
+
+    @property
+    def pos(self):
+        inv = dict()
+        for key in self.lpos_dict:
+            inv[self.lpos_dict[key]] = key
+        return inv[self.lpos]
 
     @property
     def corpus_name(self):
@@ -212,11 +226,16 @@ class WordSketch:
     def gram_rel(self):
         return self._gram_rels
 
+    @property
+    def url(self):
+        return self._url
+
     def __str__(self):
-        return "\n---\nLemma: {}.\nCorpus: {}.\nFrequency: {} ({} per million).\n".format(self.lemma,
-                                                                                    self.corpus_name,
-                                                                                    self.frequency_raw,
-                                                                                    round(self.frequency_rel, 2))
+        return ("URL: {}.\nLemma: {}.\nPart of speech: {} ('{}').\n"
+                "Corpus: {}.\nFrequency: {} ({} per million).\n".format(self.url, self.lemma, self.pos, self.lpos,
+                                                                        self.corpus_name, self.frequency_raw,
+                                                                        round(self.frequency_rel, 2)))
+
 
 class WordList:
 
