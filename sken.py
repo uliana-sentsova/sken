@@ -102,24 +102,79 @@ class Query:
 
 class Corpus:
 
-    method = "/corpname"
+    method = "/corp_info"
 
-    def __init__(self, corpus_name, my_corpus=False):
+    def __init__(self, corpus_name, my_corpus=False, default=False):
         self._corpname = corpus_name
+        self._params = {"corpname": corpus_name}
+        self._url = None
         self._info = None
+        self._raw_info = None
+
+        if default:
+            self.default()
 
     @property
     def corpname(self):
         return self._corpname
 
+    @property
+    def info(self):
+        return self._info
+
     def default(self):
-        global DEFAULT
-        DEFAULT["DEFAULT_CORPUS"] = self
+        global default_params
+        default_params["corpname"] = self.corpname
+
+    def __str__(self):
+        return self.description
+
+    def get_info(self):
+        if self.info is not None:
+            return self.info
+
+        update_from_default(self._params)
+        response = requests.get(_BASE_URL + self.method, params=self._params)
+        self._url = response.url
+        data = response.json()
+
+        self._info = {"name": data["name"], "description": data["info"], "documentation": data["infohref"],
+                "encoding": data["encoding"], "lpos_dict": dict(data["lposlist"]), "size": data["sizes"]}
+        self._raw_info = data
+
+        return self.info
+
+    @property
+    def info(self):
+        return self._info
+
+    @property
+    def info_raw(self):
+        return self._raw_info
+
+    @property
+    def name(self):
+        return self.info["name"]
+
+    @property
+    def description(self):
+        return self.info["description"]
+
+    @property
+    def documentation(self):
+        return self.info["documentation"]
+
+    @property
+    def encoding(self):
+        return self.info["encoding"]
 
     @property
     def lempos(self):
-        #TODO
-        return {"KEY": "VALUE"}
+        return self.info["lpos_dict"]
+
+    @property
+    def size(self):
+        return self.info["size"]
 
 
 class WordSketch:
