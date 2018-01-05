@@ -2,6 +2,7 @@ import requests
 from pprint import pprint
 from collections import defaultdict
 import configparser
+import utils
 config = configparser.ConfigParser()
 config.read('config.ini')
 
@@ -13,12 +14,36 @@ default_params = {"format": _FORMAT, "username": None, "api_key": None}
 REQUIRED = ["api_key", "username", "corpname"]
 
 
-def parse_args(args):
+def login(api_key, username):
+    global default_params
+    default_params.update({"api_key": api_key, "username": username})
+
+
+def reset_to_default():
+    global default_params
+    default_params = {"format": _FORMAT, "username": None, "api_key": None}
+
+
+def _sketch_engine_request(method, params):
+    _update_from_default(params)
+
+    _update_from_default(params)
+    missing = _missing_params(params)
+    if missing:
+        raise Exception("Missing parameter(s): {}".format(", ".join(missing)) + ".")
+
+    print("Sending request to Sketch Engine API...")
+    response = requests.get(_BASE_URL + method, params=params)
+    if response.status_code != requests.codes.ok:
+        response.raise_for_status()
+    print("Data retrieved.")
+    data = response.json()
+    return data
+
+
+def _parse_args(args):
     parsed = {}
     for arg in args:
-        if isinstance(arg, User):
-            parsed["api_key"] = arg.api_key
-            parsed["username"] = arg.username
         if isinstance(arg, Corpus):
             parsed["corpname"] = arg.corpname
         if isinstance(arg, Query):
@@ -26,12 +51,7 @@ def parse_args(args):
     return parsed
 
 
-def reset_default_parameters():
-    global default_params
-    default_params = {"format": _FORMAT, "username": None, "api_key": None}
-
-
-def update_from_default(params):
+def _update_from_default(params):
     for key in default_params:
         if key not in params:
             params[key] = default_params[key]
@@ -39,7 +59,7 @@ def update_from_default(params):
     return params
 
 
-def missing_params(params):
+def _missing_params(params):
     missing = []
     for key in REQUIRED:
         if key not in params:
@@ -49,28 +69,11 @@ def missing_params(params):
     return missing
 
 
-class User:
-
-    def __init__(self, api_key, username, default=True):
-        self._api_key = api_key
-        self._username = username
-        if default:
-            self.default()
-
-    def default(self):
-        global DEFAULT, default_params
-        default_params["api_key"] = self.api_key
-        default_params["username"] = self.username
-
-    @property
-    def api_key(self):
-        return self._api_key
-
-    @property
-    def username(self):
-        return self._username
-
-
+def _inverse_dict(d):
+    inv = {}
+    for key in d:
+        inv[d[key]] = key
+    return inv
 
 
 class Query:
@@ -82,7 +85,6 @@ class Query:
             if type(parameters[key]) != str:
                 raise Exception("String <str> expected.")
         self._params = parameters
-
 
     @property
     def parameters(self):
@@ -102,45 +104,26 @@ class Corpus:
 
     method = "/corp_info"
 
-    def __init__(self, corpus_name, my_corpus=False, default=False):
+    def __init__(self, corpus_name, my_corpus=False):
         self._corpname = corpus_name
         self._params = {"corpname": corpus_name}
-        self._url = None
         self._info = None
         self._raw_info = None
 
-        if default:
-            self.default()
-
-    @property
-    def corpname(self):
-        return self._corpname
-
-    @property
-    def info(self):
-        return self._info
+    def get_info(self):
+        if self._info is None:
+            data = _sketch_engine_request(self.method, self._params)
+            self._info = {"name": data["name"], "description": data["info"], "documentation": data["infohref"],
+                "encoding": data["encoding"], "lpos_dict": dict(data["lposlist"]), "size": data["sizes"]}
+            self._raw_info = data
 
     def default(self):
         global default_params
         default_params["corpname"] = self.corpname
 
-    def __str__(self):
-        return self.description
-
-    def get_info(self):
-        if self.info is not None:
-            return self.info
-
-        update_from_default(self._params)
-        response = requests.get(_BASE_URL + self.method, params=self._params)
-        self._url = response.url
-        data = response.json()
-
-        self._info = {"name": data["name"], "description": data["info"], "documentation": data["infohref"],
-                "encoding": data["encoding"], "lpos_dict": dict(data["lposlist"]), "size": data["sizes"]}
-        self._raw_info = data
-
-        return self.info
+    @property
+    def corpname(self):
+        return self._corpname
 
     @property
     def info(self):
@@ -178,104 +161,59 @@ class Corpus:
 class WordSketch:
 
     method = "/wsketch"
-    method_url = _BASE_URL + method
 
     def __init__(self, *args, **kwargs):
         self._params = {}
 
-        if args and kwargs:
-            self._params.update(parse_args(args))
+        if kwargs and not args:
             self._params.update(kwargs)
 
-        if kwargs and not args:
-            self.params_from_kwargs(kwargs)
+        if args and kwargs:
+            self._params.update(_parse_args(args))
+            self._params.update(kwargs)
 
         if args and not kwargs:
-            self.params_from_args(args)
+            self._params.update(_parse_args(args))
 
-        update_from_default(self._params)
-        missing = missing_params(self._params)
-        if missing:
-            raise Exception("Missing parameter(s): {}".format(", ".join(missing)) + ".")
-
-        print("Sending request to Sketch Engine API...")
-
-        response = requests.get(self.method_url, params=self._params)
-        if response.status_code != requests.codes.ok:
-            response.raise_for_status()
-
-        data = response.json()
-        print("Data retrieved.")
-
-        self._url = response.url
-        self._lemma = data["lemma"]
-        self._corpus_name = data["corp_full_name"]
-        self._frequency_raw = data["freq"]
-        self._frequency_rel = data["relfreq"]
-        self._lpos_dict = data["lpos_dict"]
-        self._lpos = data["lpos"]
-        self._gram_rels = data["Gramrels"]
-
-    def params_from_kwargs(self, kwargs):
-        if set(kwargs).issubset(set(REQUIRED)):
-            raise Exception("Not enough arguments to make a Sketch Engine request.")
-        self._params.update(kwargs)
-
-    def params_from_args(self, args):
-
-        types = [type(o) for o in args]
-        if Query not in types:
-            raise Exception("Please specify your query.")
-        else:
-            self._params.update(parse_args(args))
-
-    @property
-    def parameters(self):
-        return self._params
+        data = _sketch_engine_request(self.method, self._params)
+        self._data = data
 
     @property
     def lemma(self):
-        return self._lemma
-
-
-    @property
-    def lpos_dict(self):
-        return self._lpos_dict
+        return self._data["lemma"]
 
     @property
-    def lpos(self):
-        return self._lpos
+    def lempos_dict(self):
+        return self._data["lpos_dict"]
+
+    @property
+    def lempos(self):
+        return self._data["lpos"]
 
     @property
     def pos(self):
-        inv = dict()
-        for key in self.lpos_dict:
-            inv[self.lpos_dict[key]] = key
-        return inv[self.lpos]
+        inv = _inverse_dict(self.lempos_dict)
+        return inv[self.lempos]
 
     @property
     def corpus_name(self):
-        return self._corpus_name
+        return self._data["corp_full_name"]
 
     @property
     def frequency_raw(self):
-        return self._frequency_raw
+        return self._data["freq"]
 
     @property
     def frequency_rel(self):
-        return self._frequency_rel
+        return self._data["relfreq"]
 
     @property
-    def gram_rel(self):
-        return self._gram_rels
-
-    @property
-    def url(self):
-        return self._url
+    def gram_rels(self):
+        return self._data["Gramrels"]
 
     def __str__(self):
         return ("Lemma: {}.\nPart of speech: {} ('{}').\n"
-                "Corpus: {}.\nFrequency: {} ({} per million).".format(self.lemma, self.pos, self.lpos,
+                "Corpus: {}.\nFrequency: {} ({} per million).".format(self.lemma, self.pos, self.lempos,
                                                                       self.corpus_name, self.frequency_raw,
                                                                       round(self.frequency_rel, 2)))
 
@@ -376,3 +314,28 @@ class SketchDiff:
         self._url = ""
         self._query = ""
         self.lemma = ""
+
+
+
+#
+# class User:
+#
+#     def __init__(self, api_key, username, default=True):
+#         self._api_key = api_key
+#         self._username = username
+#         if default:
+#             self.default()
+#
+#     def default(self):
+#         global DEFAULT, default_params
+#         default_params["api_key"] = self.api_key
+#         default_params["username"] = self.username
+#
+#     @property
+#     def api_key(self):
+#         return self._api_key
+#
+#     @property
+#     def username(self):
+#         return self._username
+#
