@@ -1,11 +1,9 @@
 import requests
 from pprint import pprint
+from collections import defaultdict
 import configparser
 config = configparser.ConfigParser()
 config.read('config.ini')
-
-# DEFAULT = {"DEFAULT_USER": None,
-#            "DEFAULT_CORPUS": None}
 
 _BASE_URL = config["DEFAULT"]["base_url"]
 _FORMAT = config["DEFAULT"]["format"]
@@ -216,7 +214,7 @@ class WordSketch:
         self._frequency_rel = data["relfreq"]
         self._lpos_dict = data["lpos_dict"]
         self._lpos = data["lpos"]
-        self._gram_rels = data["gramrels"]
+        self._gram_rels = data["Gramrels"]
 
     def params_from_kwargs(self, kwargs):
         if set(kwargs).issubset(set(REQUIRED)):
@@ -276,10 +274,73 @@ class WordSketch:
         return self._url
 
     def __str__(self):
-        return ("URL: {}.\nLemma: {}.\nPart of speech: {} ('{}').\n"
-                "Corpus: {}.\nFrequency: {} ({} per million).".format(self.url, self.lemma, self.pos, self.lpos,
-                                                                        self.corpus_name, self.frequency_raw,
-                                                                        round(self.frequency_rel, 2)))
+        return ("Lemma: {}.\nPart of speech: {} ('{}').\n"
+                "Corpus: {}.\nFrequency: {} ({} per million).".format(self.lemma, self.pos, self.lpos,
+                                                                      self.corpus_name, self.frequency_raw,
+                                                                      round(self.frequency_rel, 2)))
+
+    def extract_gramrels(self):
+        gram_rels = defaultdict(dict)
+
+        for gramrel in self._gram_rels:
+            name = gramrel["name"].replace("%w", self.lemma)
+            for word in gramrel["Words"]:
+                collocate = Collocate(word, name)
+                gram_rels[name][collocate.word] = collocate
+        self._gram_rels = gram_rels
+
+    @property
+    def gram_rel_names(self):
+        return list(self._gram_rels.keys())
+
+    @property
+    def gram_rels(self):
+        return self._gram_rels
+
+
+class Collocate:
+
+    method_url = _BASE_URL + "/view"
+    basic_params = {"pagesize": 5, "viewmode": "sen"}
+
+    def __init__(self, data, gramrelname):
+        self._gram_rel_name = gramrelname
+        try:
+            self._word = data["word"]
+        except KeyError:
+            self._word = data["name"]
+
+        # self._lempos = data["lempos"]
+        self._score = data["score"]
+        self._seek = 'q[ws(2,{})]'.format(data["seek"])
+        self._count = data["count"]
+        # self._example = data["cm"]
+        self._params = {"q": self._seek}
+        self._params.update(self.basic_params)
+        self._params.update(default_params)
+
+    @property
+    def word(self):
+        return self._word
+
+    def get_sentences(self):
+
+        data = requests.get(self.method_url, params=self._params).json()
+
+        sentences = []
+
+        for i in range(3):
+            for line in data['Lines']:
+                left = ''.join(part['str'] for part in line['Left'])
+                middle = ''.join(part['str'] for part in line['Kwic'])
+                right = ''.join(part['str'] for part in line['Right'])
+                sentence = left + middle + right
+                sentences.append(sentence)
+            pars = self._params
+            pars["from"] = data["nextlink"].split("=")[1]
+            response = requests.get(self.method_url, params=pars).json()
+
+        return sentences
 
 
 class WordList:
@@ -315,8 +376,3 @@ class SketchDiff:
         self._url = ""
         self._query = ""
         self.lemma = ""
-
-
-
-
-
