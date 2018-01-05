@@ -35,9 +35,11 @@ def _sketch_engine_request(method, params):
     print("Sending request to Sketch Engine API...")
     response = requests.get(_BASE_URL + method, params=params)
     if response.status_code != requests.codes.ok:
-        response.raise_for_status()
-    print("Data retrieved.")
+        raise requests.RequestException()
     data = response.json()
+    if "error" in data.keys():
+        raise requests.RequestException("Server error occured. No data retrieved.")
+    print("Data retrieved.")
     return data
 
 
@@ -208,66 +210,103 @@ class WordSketch:
         return self._data["relfreq"]
 
     @property
-    def gram_rels(self):
+    def gramrels_raw(self):
         return self._data["Gramrels"]
 
+    @property
+    def number_of_gramrels(self):
+        return len(self.gramrels_raw)
+
     def __str__(self):
-        return ("Lemma: {}.\nPart of speech: {} ('{}').\n"
-                "Corpus: {}.\nFrequency: {} ({} per million).".format(self.lemma, self.pos, self.lempos,
-                                                                      self.corpus_name, self.frequency_raw,
-                                                                      round(self.frequency_rel, 2)))
+        return ("Lemma: {lemma}.\n"
+                "Part of speech: {pos} ('{lempos}').\n"
+                "Corpus: {corpus}.\n"
+                "Frequency: {freq} ({relfreq} per million).\n"
+                "Number of grammatical relations: {num}".format(lemma=self.lemma,
+                                                                pos=self.pos,
+                                                                lempos=self.lempos,
+                                                                corpus=self.corpus_name,
+                                                                freq=self.frequency_raw,
+                                                                relfreq=round(self.frequency_rel, 2),
+                                                                num=self.number_of_gramrels))
 
     def extract_gramrels(self):
-        gram_rels = defaultdict(dict)
+        gramrels = defaultdict(dict)
 
-        for gramrel in self._gram_rels:
+        for gramrel in self.gramrels_raw:
             name = gramrel["name"].replace("%w", self.lemma)
             for word in gramrel["Words"]:
                 collocate = Collocate(word, name)
-                gram_rels[name][collocate.word] = collocate
-        self._gram_rels = gram_rels
+                gramrels[name][collocate.word] = collocate
+        self._gramrels = gramrels
 
     @property
     def gram_rel_names(self):
-        return list(self._gram_rels.keys())
+        return list(self._gramrels.keys())
 
     @property
-    def gram_rels(self):
-        return self._gram_rels
+    def gramrels(self):
+        return self._gramrels
 
 
 class Collocate:
 
-    method_url = _BASE_URL + "/view"
-    basic_params = {"pagesize": 5, "viewmode": "sen"}
+    method = "/view"
+    basic_params = dict(pagesize=10, viewmode="sen")
+    other = dict(gdex_enabled=0, attr="lemma,tag,word", ctxattrs="lemma,tag,word")
 
     def __init__(self, data, gramrelname):
         self._gram_rel_name = gramrelname
-        try:
-            self._word = data["word"]
-        except KeyError:
-            self._word = data["name"]
-
-        # self._lempos = data["lempos"]
-        self._score = data["score"]
-        self._seek = 'q[ws(2,{})]'.format(data["seek"])
-        self._count = data["count"]
-        # self._example = data["cm"]
-        self._params = {"q": self._seek}
+        self._data = data
+        self._params = {"q": 'q[ws(2,{})]'.format(data["seek"])}
+        # self._params = {"w": data["seek"]} # or 2?
         self._params.update(self.basic_params)
-        self._params.update(default_params)
 
     @property
     def word(self):
-        return self._word
+        try:
+            return self._data["word"]
+        except KeyError:
+            return self._data["name"]
 
-    def get_sentences(self):
+    @property
+    def score(self):
+        return self._data["score"]
 
-        data = requests.get(self.method_url, params=self._params).json()
+    @property
+    def count(self):
+        return self._data["count"]
+
+    @property
+    def example(self):
+        try:
+            return self._data["cm"]
+        except KeyError:
+            return None
+
+    @property
+    def lempos(self):
+        try:
+            return self._data["lempos"]
+        except KeyError:
+            return None
+
+    def set_pagesize(self, pagesize):
+        self.basic_params["pagesize"] = pagesize
+
+    def set_viewmode(self, viewmode):
+        if viewmode not in ["kwic", "sen"]:
+            print('Wrong parameters: either "kwic" or "sen".')
+            raise Exception()
+        self.basic_params["pagesize"] = viewmode
+
+    def get_sentences(self, number_of_pages=5):
+
+        data = _sketch_engine_request(method=self.method, params=self._params)
 
         sentences = []
 
-        for i in range(3):
+        for i in range(number_of_pages):
             for line in data['Lines']:
                 left = ''.join(part['str'] for part in line['Left'])
                 middle = ''.join(part['str'] for part in line['Kwic'])
@@ -276,7 +315,7 @@ class Collocate:
                 sentences.append(sentence)
             pars = self._params
             pars["from"] = data["nextlink"].split("=")[1]
-            response = requests.get(self.method_url, params=pars).json()
+            data = _sketch_engine_request(method=self.method, params=pars)
 
         return sentences
 
