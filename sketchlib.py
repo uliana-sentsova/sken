@@ -27,7 +27,7 @@ def reset_to_default():
     default_params = {"format": _FORMAT, "username": None, "api_key": None}
 
 
-def _sketch_engine_request(method, params):
+def sketch_engine_request(method, params):
     _update_from_default(params)
 
     _update_from_default(params)
@@ -117,7 +117,7 @@ class Corpus:
 
     def get_info(self):
         if self._info is None:
-            data = _sketch_engine_request(self.method, self._params)
+            data = sketch_engine_request(self.method, self._params)
             self._info = {"name": data["name"], "description": data["info"], "documentation": data["infohref"],
                 "encoding": data["encoding"], "lpos_dict": dict(data["lposlist"]), "size": data["sizes"]}
             self._raw_info = data
@@ -180,7 +180,7 @@ class WordSketch:
         if args and not kwargs:
             self._params.update(_parse_args(args))
 
-        data = _sketch_engine_request(self.method, self._params)
+        data = sketch_engine_request(self.method, self._params)
         self._data = data
 
     @property
@@ -315,36 +315,34 @@ class Collocate:
         self._params["viewmode"] = viewmode
 
     def get_examples(self, number_of_pages=5, pagesize=100):
+        examples = []
+
         self.set_pagesize(pagesize)
-
-        # data = _sketch_engine_request(method=self.method, params=self._params)
-
-        sentences = []
         pars = self._params
+
         for i in range(number_of_pages):
-            data = _sketch_engine_request(method=self.method, params=pars)
+            data = sketch_engine_request(method=self.method, params=pars)
             for line in data['Lines']:
                 left = ''.join(part['str'] for part in line['Left'])
                 middle = ''.join(part['str'] for part in line['Kwic'])
                 right = ''.join(part['str'] for part in line['Right'])
                 sentence = left + middle + right
-                sentences.append(sentence.replace("<p>","").replace("</p>", ""))
+                examples.append(sentence.replace("<p>","").replace("</p>", ""))
             pars["from"] = data["nextlink"].split("=")[1]
 
-
-        return sentences
+        return examples
 
 
 class WordList:
 
     method = "/wordlist"
-    method_url = _BASE_URL + method
 
     def __init__(self, **parameters):
         self._data = ""
         self._url = ""
         self._query = ""
         self.lemma = ""
+
 
 class Thesaurus:
 
