@@ -1,6 +1,6 @@
 import requests
 from pprint import pprint
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import configparser
 import utils
 config = configparser.ConfigParser()
@@ -12,6 +12,9 @@ _FORMAT = config["DEFAULT"]["format"]
 default_params = {"format": _FORMAT, "username": None, "api_key": None}
 
 REQUIRED = ["api_key", "username", "corpname"]
+
+def show():
+    pass
 
 
 def login(api_key, username):
@@ -222,45 +225,51 @@ class WordSketch:
                 "Part of speech: {pos} ('{lempos}').\n"
                 "Corpus: {corpus}.\n"
                 "Frequency: {freq} ({relfreq} per million).\n"
-                "Number of grammatical relations: {num}".format(lemma=self.lemma,
-                                                                pos=self.pos,
-                                                                lempos=self.lempos,
-                                                                corpus=self.corpus_name,
-                                                                freq=self.frequency_raw,
-                                                                relfreq=round(self.frequency_rel, 2),
-                                                                num=self.number_of_gramrels))
+                "Number of grammatical relations: {num}.\n\n"
+                "Use <WordSketch>.extract_gramrels() to extract grammatical relations."
+                "".format(lemma=self.lemma, pos=self.pos, lempos=self.lempos,
+                          corpus=self.corpus_name, freq=self.frequency_raw,
+                          relfreq=round(self.frequency_rel, 2), num=self.number_of_gramrels))
 
     def extract_gramrels(self):
-        gramrels = defaultdict(dict)
+        gramrels = OrderedDict()
 
         for gramrel in self.gramrels_raw:
+
             name = gramrel["name"].replace("%w", self.lemma)
+            gramrels[name] = OrderedDict()
             for word in gramrel["Words"]:
                 collocate = Collocate(word, name)
+
                 gramrels[name][collocate.word] = collocate
         self._gramrels = gramrels
+        print("Grammatical relations extracted.\nUse <WordSketch>.gramrels and <WordSketch.gramrel_names"
+              " to see further information.")
 
     @property
-    def gram_rel_names(self):
+    def gramrel_names(self):
         return list(self._gramrels.keys())
 
     @property
     def gramrels(self):
-        return self._gramrels
+        if self._gramrels:
+            return self._gramrels
+        return None
 
 
 class Collocate:
 
     method = "/view"
-    basic_params = dict(pagesize=10, viewmode="sen")
-    other = dict(gdex_enabled=0, attr="lemma,tag,word", ctxattrs="lemma,tag,word")
+    # basic_params = dict(pagesize=100, viewmode="sen")
+    # other = dict(gdex_enabled=0, attr="lemma,tag,word", ctxattrs="lemma,tag,word")
 
     def __init__(self, data, gramrelname):
         self._gram_rel_name = gramrelname
         self._data = data
-        self._params = {"q": 'q[ws(2,{})]'.format(data["seek"])}
-        # self._params = {"w": data["seek"]} # or 2?
-        self._params.update(self.basic_params)
+        self._params = dict(pagesize=100, viewmode="sen",
+                            q='q[ws(2,{})]'.format(data["seek"]))
+
+        # self._params.update(self.basic_params)
 
     @property
     def word(self):
@@ -292,15 +301,15 @@ class Collocate:
             return None
 
     def set_pagesize(self, pagesize):
-        self.basic_params["pagesize"] = pagesize
+        self._params["pagesize"] = pagesize
 
     def set_viewmode(self, viewmode):
         if viewmode not in ["kwic", "sen"]:
             print('Wrong parameters: either "kwic" or "sen".')
             raise Exception()
-        self.basic_params["pagesize"] = viewmode
+        self._params["viewmode"] = viewmode
 
-    def get_sentences(self, number_of_pages=5):
+    def get_examples(self, number_of_pages=5):
 
         data = _sketch_engine_request(method=self.method, params=self._params)
 
@@ -312,7 +321,7 @@ class Collocate:
                 middle = ''.join(part['str'] for part in line['Kwic'])
                 right = ''.join(part['str'] for part in line['Right'])
                 sentence = left + middle + right
-                sentences.append(sentence)
+                sentences.append(sentence.replace("<p>","").replace("</p>", ""))
             pars = self._params
             pars["from"] = data["nextlink"].split("=")[1]
             data = _sketch_engine_request(method=self.method, params=pars)
@@ -378,3 +387,7 @@ class SketchDiff:
 #     def username(self):
 #         return self._username
 #
+
+def help(obj):
+    if type(obj) == WordSketch:
+        print("")
