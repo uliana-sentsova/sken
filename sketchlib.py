@@ -2,7 +2,6 @@ import requests
 from pprint import pprint
 from collections import defaultdict, OrderedDict
 import configparser
-import utils
 config = configparser.ConfigParser()
 config.read('config.ini')
 
@@ -12,6 +11,7 @@ _FORMAT = config["DEFAULT"]["format"]
 default_params = {"format": _FORMAT, "username": None, "api_key": None}
 
 REQUIRED = ["api_key", "username", "corpname"]
+
 
 def show():
     pass
@@ -233,6 +233,7 @@ class WordSketch:
 
     def extract_gramrels(self):
         gramrels = OrderedDict()
+        print("---")
 
         for gramrel in self.gramrels_raw:
 
@@ -270,6 +271,9 @@ class Collocate:
                             q='q[ws(2,{})]'.format(data["seek"]))
 
         # self._params.update(self.basic_params)
+
+    def __str__(self):
+        return self.word
 
     @property
     def word(self):
