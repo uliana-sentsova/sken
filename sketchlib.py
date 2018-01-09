@@ -265,16 +265,17 @@ class Collocate:
     # other = dict(gdex_enabled=0, attr="lemma,tag,word", ctxattrs="lemma,tag,word")
 
     def __init__(self, data, gramrelname):
-        self._gram_rel_name = gramrelname
+        self.gramrelname = gramrelname
         self._data = data
         self._params = dict(pagesize=100, viewmode="sen",
                             q='q[ws(2,{})]'.format(data["seek"]))
 
-        # self._params.update(self.basic_params)
-
     def __str__(self):
-        return self.word
-
+        return ("Collocate: \"{word}\". Score: {score}. Count: {count}.\n"
+                "Grammatical relation to the node: {gram}.".format(word=self.word,
+                                                                score=self.score,
+                                                                count=self.count,
+                                                                gram=self.gramrelname))
     @property
     def word(self):
         try:
@@ -313,22 +314,23 @@ class Collocate:
             raise Exception()
         self._params["viewmode"] = viewmode
 
-    def get_examples(self, number_of_pages=5):
+    def get_examples(self, number_of_pages=5, pagesize=100):
+        self.set_pagesize(pagesize)
 
-        data = _sketch_engine_request(method=self.method, params=self._params)
+        # data = _sketch_engine_request(method=self.method, params=self._params)
 
         sentences = []
-
+        pars = self._params
         for i in range(number_of_pages):
+            data = _sketch_engine_request(method=self.method, params=pars)
             for line in data['Lines']:
                 left = ''.join(part['str'] for part in line['Left'])
                 middle = ''.join(part['str'] for part in line['Kwic'])
                 right = ''.join(part['str'] for part in line['Right'])
                 sentence = left + middle + right
                 sentences.append(sentence.replace("<p>","").replace("</p>", ""))
-            pars = self._params
             pars["from"] = data["nextlink"].split("=")[1]
-            data = _sketch_engine_request(method=self.method, params=pars)
+
 
         return sentences
 
